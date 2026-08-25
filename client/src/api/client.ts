@@ -1,21 +1,14 @@
-/**
- * Zazan AI - frontend API client.
- *
- * IMPORTANT: This file must NEVER contain a Gemini or ElevenLabs API key,
- * and must NEVER call generativelanguage.googleapis.com or elevenlabs.io
- * directly. All requests
- * go to our own backend ("/api/..."), which holds the real keys server-side.
- */
-
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
 }
 
+const API_BASE = "http://127.0.0.1:5000";
+
 export async function sendChatMessage(
   messages: ChatMessage[]
 ): Promise<string> {
-  const res = await fetch("/api/chat", {
+  const res = await fetch(`${API_BASE}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ messages }),
@@ -30,7 +23,7 @@ export async function sendChatMessage(
 }
 
 export async function speak(text: string, voiceId?: string): Promise<Blob> {
-  const res = await fetch("/api/voice/tts", {
+  const res = await fetch(`${API_BASE}/api/voice/tts`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, voiceId }),
