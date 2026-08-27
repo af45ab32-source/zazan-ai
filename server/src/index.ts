@@ -8,7 +8,7 @@ const app = express();
 
 app.use(
   cors({
-    origin: config.clientOrigin,
+    origin: true,
   })
 );
 app.use(express.json({ limit: "1mb" }));

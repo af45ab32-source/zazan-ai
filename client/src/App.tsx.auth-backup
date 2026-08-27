@@ -1,0 +1,241 @@
+import { useEffect, useState } from "react";
+import { sendChatMessage, type ChatMessage } from "./api/client";
+import { supabase } from "./lib/supabase";
+import type { User } from "@supabase/supabase-js";
+import "./App.css";
+
+function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isSignup, setIsSignup] = useState(false);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
+
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function loadSession() {
+      const { data } = await supabase.auth.getSession();
+      setUser(data.session?.user ?? null);
+      setCheckingAuth(false);
+    }
+
+    loadSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function handleAuth() {
+    setAuthError(null);
+    setAuthMessage(null);
+
+    if (!email.trim() || !password) {
+      setAuthError("Please enter your email and password.");
+      return;
+    }
+
+    setAuthLoading(true);
+
+    try {
+      if (isSignup) {
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+        });
+
+        if (error) throw error;
+
+        if (!data.session) {
+          setAuthMessage(
+            "Account created. Please check your email to confirm your account."
+          );
+        } else {
+          setUser(data.user);
+        }
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password,
+        });
+
+        if (error) throw error;
+
+        setUser(data.user);
+      }
+    } catch (err) {
+      setAuthError(
+        err instanceof Error ? err.message : "Authentication failed."
+      );
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    setUser(null);
+    setMessages([]);
+  }
+
+  async function handleSend() {
+    if (!input.trim() || loading) return;
+
+    const userMessage: ChatMessage = {
+      role: "user",
+      content: input,
+    };
+
+    const nextMessages = [...messages, userMessage];
+
+    setMessages(nextMessages);
+    setInput("");
+    setLoading(true);
+    setError(null);
+
+    try {
+      const reply = await sendChatMessage(nextMessages);
+
+      setMessages([
+        ...nextMessages,
+        {
+          role: "assistant",
+          content: reply,
+        },
+      ]);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Something went wrong."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (checkingAuth) {
+    return (
+      <div className="app">
+        <h1>Zazan AI</h1>
+        <p>Checking your account...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="app">
+        <h1>Zazan AI</h1>
+
+        <p className="subtitle">
+          {isSignup ? "Create your Zazan account" : "Login to Zazan AI"}
+        </p>
+
+        <div className="auth-form">
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Email"
+            autoComplete="email"
+          />
+
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Password"
+            autoComplete={isSignup ? "new-password" : "current-password"}
+          />
+
+          <button onClick={handleAuth} disabled={authLoading}>
+            {authLoading
+              ? "Please wait..."
+              : isSignup
+                ? "Create Account"
+                : "Login"}
+          </button>
+
+          {authError && <div className="error">{authError}</div>}
+
+          {authMessage && (
+            <div className="message assistant">{authMessage}</div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsSignup(!isSignup);
+              setAuthError(null);
+              setAuthMessage(null);
+            }}
+          >
+            {isSignup
+              ? "Already have an account? Login"
+              : "Don't have an account? Sign Up"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="app">
+      <div className="header">
+        <div>
+          <h1>Zazan AI</h1>
+          <p className="subtitle">{user.email}</p>
+        </div>
+
+        <button onClick={handleLogout}>Logout</button>
+      </div>
+
+      <div className="chat-log">
+        {messages.map((m, i) => (
+          <div key={i} className={`message ${m.role}`}>
+            <strong>{m.role}:</strong> {m.content}
+          </div>
+        ))}
+
+        {loading && (
+          <div className="message assistant">
+            Zazan is thinking…
+          </div>
+        )}
+      </div>
+
+      {error && <div className="error">{error}</div>}
+
+      <div className="input-row">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              handleSend();
+            }
+          }}
+          placeholder="Talk to Zazan…"
+          disabled={loading}
+        />
+
+        <button onClick={handleSend} disabled={loading}>
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export default App;
