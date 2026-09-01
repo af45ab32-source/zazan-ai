@@ -1,74 +1,9 @@
-.app {
-  max-width: 640px;
-  margin: 0 auto;
-  padding: 2rem 1rem;
-  font-family: system-ui, sans-serif;
-  color: #e6e6e6;
-  background: #0a0a0f;
-  min-height: 100vh;
-}
+/* In index.css */
+@import "tailwindcss";
 
-h1 {
-  margin-bottom: 0.25rem;
+.font-serif {
+  font-family: 'Cormorant Garamond', Georgia, serif;
 }
-
-.subtitle {
-  color: #8888aa;
-  font-size: 0.9rem;
-  margin-top: 0;
-}
-
-.chat-log {
-  border: 1px solid #2a2a3a;
-  border-radius: 8px;
-  padding: 1rem;
-  min-height: 200px;
-  margin: 1rem 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.message {
-  padding: 0.5rem 0.75rem;
-  border-radius: 6px;
-  background: #16161f;
-}
-
-.message.user {
-  align-self: flex-end;
-  background: #1e2a4a;
-}
-
-.error {
-  color: #ff6b6b;
-  margin-bottom: 0.5rem;
-}
-
-.input-row {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.input-row input {
-  flex: 1;
-  padding: 0.6rem;
-  border-radius: 6px;
-  border: 1px solid #2a2a3a;
-  background: #16161f;
-  color: #e6e6e6;
-}
-
-.input-row button {
-  padding: 0.6rem 1.2rem;
-  border-radius: 6px;
-  border: none;
-  background: #3a5aff;
-  color: white;
-  cursor: pointer;
-}
-
-.input-row button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.font-sans {
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
 }

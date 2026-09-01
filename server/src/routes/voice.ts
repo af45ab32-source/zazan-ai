@@ -53,7 +53,7 @@ voiceRouter.post("/tts", async (req: Request, res: Response) => {
       console.error("ElevenLabs API error:", upstream.status, errText);
       return res
         .status(upstream.status)
-        .json({ error: "ElevenLabs API request failed." });
+        .json({ error: "ElevenLabs API request failed.", details: errText });
     }
 
     res.setHeader("Content-Type", "audio/mpeg");
