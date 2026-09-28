@@ -8,14 +8,6 @@ interface TtsRequestBody {
   voiceId?: string;
 }
 
-/**
- * POST /api/voice/tts
- * Body: { text: string, voiceId?: string }
- *
- * The frontend NEVER talks to ElevenLabs directly. It calls this route,
- * and this route attaches the real ElevenLabs API key server-side, then
- * streams the resulting audio back to the client.
- */
 voiceRouter.post("/tts", async (req: Request, res: Response) => {
   const body = req.body as Partial<TtsRequestBody>;
 
@@ -24,10 +16,12 @@ voiceRouter.post("/tts", async (req: Request, res: Response) => {
   }
 
   const voiceId = body.voiceId || config.elevenlabs.voiceId;
-  if (!voiceId) {
+  const apiKey = config.elevenlabs.apiKey || process.env.ELEVENLABS_API_KEY;
+
+  if (!apiKey || !voiceId) {
     return res.status(400).json({
       error:
-        "No voiceId provided and no ELEVENLABS_VOICE_ID configured on the server.",
+        "ElevenLabs TTS is not configured. Set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID.",
     });
   }
 
@@ -39,7 +33,7 @@ voiceRouter.post("/tts", async (req: Request, res: Response) => {
         headers: {
           "Content-Type": "application/json",
           Accept: "audio/mpeg",
-          "xi-api-key": config.elevenlabs.apiKey,
+          "xi-api-key": apiKey,
         },
         body: JSON.stringify({
           text: body.text,

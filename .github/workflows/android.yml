@@ -2,6 +2,9 @@ name: Build Zazan AI APK
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
   build:
@@ -17,15 +20,25 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Build web app
-        working-directory: client
+        env:
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || secrets.API_BASE_URL || '' }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://sqbzzinfdmrxyjvwrlns.supabase.co' }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_lOk7hTWfKuDEr6r1Xc9qCA_aIx3ipIF' }}
         run: |
-          npm ci
+          npm install
           npm run build
 
       - name: Sync Capacitor
         working-directory: client
-        run: npx cap sync android
+        run: |
+          npm install
+          npx cap sync android
 
       - name: Build APK
         working-directory: client/android

@@ -1,0 +1,7 @@
+{
+  "name": "Zazan AI",
+  "description": "Futuristic AI Assistant powered by Gemini with voice interactions and chat history",
+  "permissions": [],
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

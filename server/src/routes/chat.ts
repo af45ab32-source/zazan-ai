@@ -11,22 +11,62 @@ interface ChatMessage {
 
 interface ChatRequestBody {
   messages: ChatMessage[];
+  mode?: string;
+  language?: string;
 }
 
-// Single shared client — safe to reuse across requests, holds no per-request state.
-const genAI = new GoogleGenAI({ apiKey: config.gemini.apiKey });
+function getGenAI(): GoogleGenAI {
+  return new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    httpOptions: {
+      headers: {
+        "User-Agent": "aistudio-build",
+      },
+    },
+  });
+}
 
-/**
- * Gemini has no "system" role in its content array — system instructions
- * are passed separately via `config.systemInstruction`. This splits our
- * OpenAI-style message list into that shape, and maps
- * assistant -> "model" (Gemini's name for the assistant turn).
- */
-function toGeminiRequest(messages: ChatMessage[]) {
-  const systemParts = messages
+function getSystemInstruction(mode?: string, language?: string): string {
+  const langRules: Record<string, string> = {
+    en: "Communicate clearly in English.",
+    ps: "Respond primarily in Pashto (پښتو) using proper script and natural phrasing.",
+    ur: "Respond primarily in Urdu (اردو) using clean, respectful phrasing.",
+    ar: "Respond primarily in Modern Standard Arabic (العربية الفصحى) with proper grammar and eloquence.",
+  };
+
+  const selectedLangRule = (language && langRules[language]) || langRules.en;
+
+  const modeInstructions: Record<string, string> = {
+    general:
+      "You are Zazan AI, a sleek, intelligent, futuristic, polite, and versatile AI assistant.",
+    islamic:
+      "You are Zazan AI in Islamic Guidance Mode. Provide accurate, respectful, and well-contextualized Islamic knowledge based on authentic sources (Quran and established Sunnah). STRICT ACCURACY RULE: NEVER fabricate or guess any Quran verses, Surah names, Ayah numbers, or Hadith narrations. If you are unsure of an exact reference or authenticity, explicitly state so.",
+    study:
+      "You are Zazan AI in Study & Academic Mode. Act as a patient, encouraging tutor. Break down difficult concepts, provide illustrative analogies, solve step-by-step problems, and test the user's understanding.",
+    coding:
+      "You are Zazan AI in Software Engineering Mode. Provide robust, idiomatic, production-ready code with concise explanations, modern best practices, and edge case awareness.",
+    translator:
+      "You are Zazan AI in Translation Mode. Translate text accurately, preserving nuance, idioms, cultural context, and tone across languages including English, Pashto (پښتو), Urdu (اردو), and Arabic (العربية).",
+    summarizer:
+      "You are Zazan AI in Summarization Mode. Distill complex text, discussions, and articles into sharp, well-structured summaries with key bullet points and core takeaways.",
+    research:
+      "You are Zazan AI in In-Depth Research Mode. Provide deep, structured analysis, objective synthesis, multi-perspective evaluations, and rigorous critical thinking. Note: you cannot browse live external web links unless provided directly in context.",
+  };
+
+  const selectedMode = (mode && modeInstructions[mode]) || modeInstructions.general;
+  return `${selectedMode}\n\nLanguage requirement: ${selectedLangRule}`;
+}
+
+function toGeminiRequest(messages: ChatMessage[], mode?: string, language?: string) {
+  const systemBase = getSystemInstruction(mode, language);
+  const extraSystemParts = messages
     .filter((m) => m.role === "system")
     .map((m) => m.content)
     .join("\n\n");
+
+  const systemInstruction = extraSystemParts
+    ? `${systemBase}\n\n${extraSystemParts}`
+    : systemBase;
 
   const contents = messages
     .filter((m) => m.role === "user" || m.role === "assistant")
@@ -35,20 +75,9 @@ function toGeminiRequest(messages: ChatMessage[]) {
       parts: [{ text: m.content }],
     }));
 
-  return { systemInstruction: systemParts || undefined, contents };
+  return { systemInstruction, contents };
 }
 
-/**
- * POST /api/chat
- * Body: { messages: [{ role, content }, ...] }
- *
- * The frontend NEVER talks to Gemini directly. It calls this route, and
- * this route attaches the real Gemini API key server-side via the
- * official Google GenAI SDK.
- *
- * Response shape is kept OpenAI/DeepSeek-style ({ choices: [{ message }] })
- * so the existing frontend client code does not need to change.
- */
 chatRouter.post("/", async (req: Request, res: Response) => {
   const body = req.body as Partial<ChatRequestBody>;
 
@@ -57,7 +86,11 @@ chatRouter.post("/", async (req: Request, res: Response) => {
   }
 
   try {
-    const { systemInstruction, contents } = toGeminiRequest(body.messages);
+    const { systemInstruction, contents } = toGeminiRequest(
+      body.messages,
+      body.mode,
+      body.language
+    );
 
     if (contents.length === 0) {
       return res
@@ -65,13 +98,35 @@ chatRouter.post("/", async (req: Request, res: Response) => {
         .json({ error: "At least one user or assistant message is required." });
     }
 
-    const result = await genAI.models.generateContent({
-      model: config.gemini.model,
-      contents,
-      config: systemInstruction ? { systemInstruction } : undefined,
-    });
+    const genAI = getGenAI();
+    const candidateModels = [
+      config.gemini.model,
+      "gemini-3.8-flash",
+      "gemini-flash-latest",
+    ].filter((v, i, a) => Boolean(v) && a.indexOf(v) === i);
 
-    const text = result.text ?? "";
+    let text = "";
+    let lastError: unknown = null;
+
+    for (const model of candidateModels) {
+      try {
+        const result = await genAI.models.generateContent({
+          model,
+          contents,
+          config: systemInstruction ? { systemInstruction } : undefined,
+        });
+        text = result.text ?? "";
+        lastError = null;
+        break;
+      } catch (err) {
+        lastError = err;
+        console.warn(`Model ${model} attempt failed:`, err instanceof Error ? err.message : err);
+      }
+    }
+
+    if (lastError && !text) {
+      throw lastError;
+    }
 
     return res.json({
       choices: [
@@ -85,11 +140,6 @@ chatRouter.post("/", async (req: Request, res: Response) => {
   }
 });
 
-/**
- * Gemini SDK errors carry an HTTP-like status on `err.status` (or embed one
- * in the message for quota/rate-limit cases). We map the common cases to
- * clear, distinct responses instead of a generic 500.
- */
 function handleGeminiError(err: unknown, res: Response): void {
   console.error("Gemini chat route error:", err);
 
@@ -101,15 +151,25 @@ function handleGeminiError(err: unknown, res: Response): void {
   const message = err instanceof Error ? err.message : String(err);
   const isQuotaOrRateLimit =
     status === 429 || /quota|rate.?limit|RESOURCE_EXHAUSTED/i.test(message);
+  const isUnavailable =
+    status === 503 || /high demand|temporarily unavailable|UNAVAILABLE/i.test(message);
   const isAuthError =
     status === 401 ||
     status === 403 ||
-    /API key|permission|unauthenticated|UNAUTHENTICATED/i.test(message);
+    /API key not valid|API_KEY_INVALID|UNAUTHENTICATED/i.test(message);
 
   if (isQuotaOrRateLimit) {
     res.status(429).json({
       error:
-        "Gemini API quota or rate limit exceeded. Google's free tier is rate-limited, not unlimited — wait a bit and try again, or check your quota in Google AI Studio.",
+        "Gemini API quota or rate limit reached. Please wait a moment and try again.",
+    });
+    return;
+  }
+
+  if (isUnavailable) {
+    res.status(503).json({
+      error:
+        "Gemini model is currently experiencing high demand. Please try again in a few seconds.",
     });
     return;
   }
@@ -117,12 +177,12 @@ function handleGeminiError(err: unknown, res: Response): void {
   if (isAuthError) {
     res.status(401).json({
       error:
-        "Gemini API rejected the request — check that GEMINI_API_KEY in server/.env is valid.",
+        "Gemini API authentication failed. Please verify that GEMINI_API_KEY is configured.",
     });
     return;
   }
 
   res.status(status && status >= 400 && status < 600 ? status : 500).json({
-    error: "Gemini API request failed.",
+    error: err instanceof Error ? err.message : "Gemini API request failed.",
   });
 }

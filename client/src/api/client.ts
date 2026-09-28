@@ -1,21 +1,42 @@
+export type ZazanMode =
+  | "general"
+  | "islamic"
+  | "study"
+  | "coding"
+  | "translator"
+  | "summarizer"
+  | "research";
+
+export type ZazanLanguage = "en" | "ps" | "ur" | "ar";
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
 }
 
-const API_BASE = "http://127.0.0.1:5000";
+export function getApiBase(): string {
+  if (typeof import.meta !== "undefined" && import.meta.env) {
+    if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
+    if (import.meta.env.VITE_API_BASE) return import.meta.env.VITE_API_BASE;
+  }
+  return "";
+}
 
 export async function sendChatMessage(
-  messages: ChatMessage[]
+  messages: ChatMessage[],
+  mode: ZazanMode = "general",
+  language: ZazanLanguage = "en"
 ): Promise<string> {
-  const res = await fetch(`${API_BASE}/api/chat`, {
+  const base = getApiBase();
+  const res = await fetch(`${base}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, mode, language }),
   });
 
   if (!res.ok) {
-    throw new Error(`Chat request failed: ${res.status}`);
+    const errorData = await res.json().catch(() => null);
+    throw new Error(errorData?.error || `Chat request failed: ${res.status}`);
   }
 
   const data = await res.json();
@@ -23,15 +44,30 @@ export async function sendChatMessage(
 }
 
 export async function speak(text: string, voiceId?: string): Promise<Blob> {
-  const res = await fetch(`${API_BASE}/api/voice/tts`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, voiceId }),
-  });
+  const base = getApiBase();
+  try {
+    const res = await fetch(`${base}/api/voice/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voiceId }),
+    });
 
-  if (!res.ok) {
-    throw new Error(`Voice request failed: ${res.status}`);
+    if (res.ok) {
+      return await res.blob();
+    }
+  } catch (err) {
+    console.warn("Server TTS route error, falling back to Web Speech:", err);
   }
 
-  return res.blob();
+  // Fallback to browser Web Speech API
+  if (typeof window !== "undefined" && "speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    window.speechSynthesis.speak(utterance);
+    return new Blob([], { type: "audio/mpeg" });
+  }
+
+  return new Blob([], { type: "audio/mpeg" });
 }
