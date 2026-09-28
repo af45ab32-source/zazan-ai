@@ -10,6 +10,7 @@ server/node_modules/
 client/node_modules/
 
 # Build output
+dist/
 client/dist/
 server/dist/
 
@@ -24,3 +25,5 @@ Thumbs.db
 # Editor
 .vscode/
 .idea/
+*.backup
+*.auth-backup

@@ -78,7 +78,7 @@ function toGeminiRequest(messages: ChatMessage[], mode?: string, language?: stri
   return { systemInstruction, contents };
 }
 
-chatRouter.post("/", async (req: Request, res: Response) => {
+chatRouter.post(["/", ""], async (req: Request, res: Response) => {
   const body = req.body as Partial<ChatRequestBody>;
 
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
@@ -99,28 +99,32 @@ chatRouter.post("/", async (req: Request, res: Response) => {
     }
 
     const genAI = getGenAI();
-    const candidateModels = [
-      config.gemini.model,
-      "gemini-3.8-flash",
-      "gemini-flash-latest",
-    ].filter((v, i, a) => Boolean(v) && a.indexOf(v) === i);
+    const targetModel = "gemini-3.8-flash";
 
     let text = "";
     let lastError: unknown = null;
+    const maxAttempts = 3;
 
-    for (const model of candidateModels) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const result = await genAI.models.generateContent({
-          model,
+          model: targetModel,
           contents,
           config: systemInstruction ? { systemInstruction } : undefined,
         });
         text = result.text ?? "";
         lastError = null;
         break;
-      } catch (err) {
+      } catch (err: unknown) {
         lastError = err;
-        console.warn(`Model ${model} attempt failed:`, err instanceof Error ? err.message : err);
+        const msg = err instanceof Error ? err.message : String(err);
+        const isUnavailable = /high demand|temporarily unavailable|UNAVAILABLE|503/i.test(msg);
+        if (isUnavailable && attempt < maxAttempts) {
+          console.warn(`Gemini 503 high demand spike, retrying (attempt ${attempt}/${maxAttempts})...`);
+          await new Promise((r) => setTimeout(r, 600 * attempt));
+          continue;
+        }
+        break;
       }
     }
 

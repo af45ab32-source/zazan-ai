@@ -34,9 +34,22 @@ export async function sendChatMessage(
     body: JSON.stringify({ messages, mode, language }),
   });
 
+  const contentType = res.headers.get("content-type") || "";
+
   if (!res.ok) {
-    const errorData = await res.json().catch(() => null);
-    throw new Error(errorData?.error || `Chat request failed: ${res.status}`);
+    let errorMessage = `Chat request failed (${res.status})`;
+    if (contentType.includes("application/json")) {
+      const errorData = await res.json().catch(() => null);
+      if (errorData?.error) errorMessage = errorData.error;
+    } else {
+      const text = await res.text().catch(() => "");
+      if (text && !text.startsWith("<!")) errorMessage = text.slice(0, 150);
+    }
+    throw new Error(errorMessage);
+  }
+
+  if (!contentType.includes("application/json")) {
+    throw new Error("Chat service returned unexpected non-JSON response.");
   }
 
   const data = await res.json();
@@ -53,19 +66,27 @@ export async function speak(text: string, voiceId?: string): Promise<Blob> {
     });
 
     if (res.ok) {
-      return await res.blob();
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("audio/")) {
+        return await res.blob();
+      }
+      // If server returned fallback indicator, smoothly proceed to browser speech
     }
-  } catch (err) {
-    console.warn("Server TTS route error, falling back to Web Speech:", err);
+  } catch {
+    // Proceed to Web Speech API fallback
   }
 
   // Fallback to browser Web Speech API
   if (typeof window !== "undefined" && "speechSynthesis" in window) {
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.0;
-    utterance.pitch = 1.0;
-    window.speechSynthesis.speak(utterance);
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      // safe fallback
+    }
     return new Blob([], { type: "audio/mpeg" });
   }
 

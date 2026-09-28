@@ -19,9 +19,10 @@ voiceRouter.post("/tts", async (req: Request, res: Response) => {
   const apiKey = config.elevenlabs.apiKey || process.env.ELEVENLABS_API_KEY;
 
   if (!apiKey || !voiceId) {
-    return res.status(400).json({
-      error:
-        "ElevenLabs TTS is not configured. Set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID.",
+    return res.status(200).json({
+      fallback: true,
+      provider: "browser",
+      message: "ElevenLabs TTS is not configured. Using browser speech synthesis fallback.",
     });
   }
 
@@ -43,11 +44,15 @@ voiceRouter.post("/tts", async (req: Request, res: Response) => {
     );
 
     if (!upstream.ok || !upstream.body) {
-      const errText = await upstream.text();
-      console.error("ElevenLabs API error:", upstream.status, errText);
-      return res
-        .status(upstream.status)
-        .json({ error: "ElevenLabs API request failed.", details: errText });
+      const errText = await upstream.text().catch(() => "");
+      console.warn(
+        `ElevenLabs TTS unavailable (status ${upstream.status}). Falling back to browser speech synthesis.`
+      );
+      return res.status(200).json({
+        fallback: true,
+        provider: "browser",
+        message: "ElevenLabs TTS unavailable. Using browser speech synthesis.",
+      });
     }
 
     res.setHeader("Content-Type", "audio/mpeg");

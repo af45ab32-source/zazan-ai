@@ -24,6 +24,11 @@ async function startServer() {
   app.use("/api/chat", chatRouter);
   app.use("/api/voice", voiceRouter);
 
+  // Explicit 404 for unmatched /api routes so they NEVER fall through to the HTML SPA fallback
+  app.all("/api/*", (req, res) => {
+    res.status(404).json({ error: `API route ${req.method} ${req.originalUrl} not found` });
+  });
+
   const isDev = process.env.NODE_ENV !== "production";
   const clientDir = path.resolve(__dirname, "client");
 

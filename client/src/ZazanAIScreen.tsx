@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   MoreVertical,
   Send,
@@ -20,6 +20,7 @@ import {
   Check,
   Sparkles,
   MessageSquare,
+  ArrowDown,
 } from "lucide-react";
 import type { ZazanMode, ZazanLanguage, ChatMessage } from "./api/client";
 import type { User } from "@supabase/supabase-js";
@@ -121,14 +122,47 @@ export default function ZazanAIScreen({
   const [authPassword, setAuthPassword] = useState("");
   const [isSignup, setIsSignup] = useState(false);
 
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
   const isRtl = currentLanguage === "ps" || currentLanguage === "ur" || currentLanguage === "ar";
 
+  const scrollToBottom = useCallback((smooth = true) => {
+    if (messagesContainerRef.current) {
+      const container = messagesContainerRef.current;
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: smooth ? "smooth" : "auto",
+      });
+    }
+    if (chatBottomRef.current) {
+      chatBottomRef.current.scrollIntoView({
+        behavior: smooth ? "smooth" : "auto",
+        block: "end",
+      });
+    }
+  }, []);
+
+  // Handle user scroll detection for floating scroll-to-bottom button
+  const handleScroll = useCallback(() => {
+    if (!messagesContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+    const distanceToBottom = scrollHeight - (scrollTop + clientHeight);
+    setShowScrollBottomBtn(distanceToBottom > 120);
+  }, []);
+
+  // Auto-scroll whenever messages change (added by user or assistant) or thinking status changes
   useEffect(() => {
     if (messages.length > 0) {
-      chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      scrollToBottom(true);
+      const timer1 = setTimeout(() => scrollToBottom(true), 60);
+      const timer2 = setTimeout(() => scrollToBottom(true), 200);
+      return () => {
+        clearTimeout(timer1);
+        clearTimeout(timer2);
+      };
     }
-  }, [messages, isThinking]);
+  }, [messages, isThinking, scrollToBottom]);
 
   const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -291,7 +325,11 @@ export default function ZazanAIScreen({
           </div>
         ) : (
           /* CONVERSATION STREAM (When active chat messages exist) */
-          <div className="w-full flex-1 overflow-y-auto space-y-4 p-2">
+          <div
+            ref={messagesContainerRef}
+            onScroll={handleScroll}
+            className="w-full flex-1 overflow-y-auto space-y-4 p-2 scroll-smooth relative"
+          >
             {messages.map((m, idx) => {
               const isUser = m.role === "user";
               return (
@@ -357,7 +395,23 @@ export default function ZazanAIScreen({
               </div>
             )}
 
-            <div ref={chatBottomRef} />
+            {/* Bottom scroll anchor */}
+            <div ref={chatBottomRef} className="h-1 w-full shrink-0" />
+
+            {/* Quick scroll to bottom button when user scrolled up */}
+            {showScrollBottomBtn && (
+              <div className="sticky bottom-1 left-0 right-0 flex justify-center pointer-events-none z-20">
+                <button
+                  type="button"
+                  onClick={() => scrollToBottom(true)}
+                  className="pointer-events-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#09152b]/95 border border-sky-400/60 text-sky-200 text-xs shadow-[0_0_15px_rgba(56,189,248,0.4)] backdrop-blur-md hover:bg-sky-900/60 transition-all cursor-pointer animate-in fade-in"
+                  title="Scroll to latest messages"
+                >
+                  <ArrowDown className="w-3.5 h-3.5 text-sky-400 animate-bounce" />
+                  <span>Scroll to bottom</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
