@@ -21,6 +21,12 @@ import {
   Sparkles,
   MessageSquare,
   ArrowDown,
+  Mic,
+  MicOff,
+  Settings,
+  ShieldCheck,
+  AlertCircle,
+  ExternalLink,
 } from "lucide-react";
 import type { ZazanMode, ZazanLanguage, ChatMessage } from "./api/client";
 import type { User } from "@supabase/supabase-js";
@@ -62,6 +68,14 @@ export interface ZazanAIScreenProps {
 
   voiceNotice?: string | null;
   onDismissVoiceNotice?: () => void;
+
+  micSettingsOpen: boolean;
+  onOpenMicSettings: () => void;
+  onCloseMicSettings: () => void;
+  micGranted: boolean | null;
+  onRequestMicPermission: () => Promise<void>;
+  onOpenAppSettings: () => Promise<void>;
+  onTestSpeech: () => Promise<void>;
 }
 
 const MODES: Array<{ id: ZazanMode; label: string; icon: React.ComponentType<{ className?: string }>; desc: string }> = [
@@ -112,6 +126,13 @@ export default function ZazanAIScreen({
   onContinueAsGuest,
   voiceNotice,
   onDismissVoiceNotice,
+  micSettingsOpen,
+  onOpenMicSettings,
+  onCloseMicSettings,
+  micGranted,
+  onRequestMicPermission,
+  onOpenAppSettings,
+  onTestSpeech,
 }: ZazanAIScreenProps) {
   const [inputText, setInputText] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -219,15 +240,36 @@ export default function ZazanAIScreen({
           </div>
         </div>
 
-        {/* Right: Three Dots Menu */}
-        <button
-          onClick={() => setDrawerOpen(true)}
-          className="w-10 h-10 -mr-2 rounded-full flex items-center justify-center text-[#94a3b8] hover:text-white hover:bg-sky-950/30 transition-all cursor-pointer"
-          title="Open Menu & History"
-          aria-label="Open menu"
-        >
-          <MoreVertical className="w-5 h-5" />
-        </button>
+        {/* Right: Microphone Status & Three Dots Menu */}
+        <div className="flex items-center gap-1 -mr-2">
+          <button
+            onClick={onOpenMicSettings}
+            className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+              micGranted === false
+                ? "text-rose-400 bg-rose-950/40 border border-rose-500/40 shadow-[0_0_10px_rgba(244,63,94,0.3)] animate-pulse"
+                : micGranted === true
+                  ? "text-emerald-400 hover:bg-sky-950/30"
+                  : "text-slate-400 hover:text-sky-300 hover:bg-sky-950/30"
+            }`}
+            title="Microphone Access Settings"
+            aria-label="Microphone settings"
+          >
+            {micGranted === false ? (
+              <MicOff className="w-4 h-4" />
+            ) : (
+              <Mic className="w-4 h-4" />
+            )}
+          </button>
+
+          <button
+            onClick={() => setDrawerOpen(true)}
+            className="w-10 h-10 rounded-full flex items-center justify-center text-[#94a3b8] hover:text-white hover:bg-sky-950/30 transition-all cursor-pointer"
+            title="Open Menu & History"
+            aria-label="Open menu"
+          >
+            <MoreVertical className="w-5 h-5" />
+          </button>
+        </div>
       </header>
 
       {/* 2. MAIN CENTER HERO OR CHAT STREAM */}
@@ -424,15 +466,25 @@ export default function ZazanAIScreen({
               <VolumeX className="w-4 h-4 text-sky-400 shrink-0" />
               <span className="leading-snug">{voiceNotice}</span>
             </div>
-            {onDismissVoiceNotice && (
+            <div className="flex items-center gap-1.5 ml-2 shrink-0">
               <button
-                onClick={onDismissVoiceNotice}
-                className="text-sky-400/80 hover:text-white p-1 ml-2 cursor-pointer shrink-0"
-                title="Dismiss"
+                type="button"
+                onClick={onOpenMicSettings}
+                className="px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 text-[11px] font-semibold transition-colors cursor-pointer"
               >
-                <X className="w-3.5 h-3.5" />
+                Settings
               </button>
-            )}
+              {onDismissVoiceNotice && (
+                <button
+                  type="button"
+                  onClick={onDismissVoiceNotice}
+                  className="text-sky-400/80 hover:text-white p-1 cursor-pointer"
+                  title="Dismiss"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -664,8 +716,40 @@ export default function ZazanAIScreen({
           )}
         </div>
 
-        {/* Drawer Footer: TTS toggle & Account */}
+        {/* Drawer Footer: Microphone Access, TTS toggle & Account */}
         <div className="p-3 border-t border-[#1b2b48] space-y-2">
+          {/* Microphone Access Settings */}
+          <button
+            type="button"
+            onClick={() => {
+              setDrawerOpen(false);
+              onOpenMicSettings();
+            }}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs bg-slate-900/60 border border-slate-700/40 text-slate-200 hover:bg-sky-950/40 transition-colors cursor-pointer"
+          >
+            <span className="flex items-center gap-2">
+              {micGranted === true ? (
+                <Mic className="w-4 h-4 text-emerald-400" />
+              ) : micGranted === false ? (
+                <MicOff className="w-4 h-4 text-rose-400" />
+              ) : (
+                <Mic className="w-4 h-4 text-amber-400" />
+              )}
+              <span>Microphone Access</span>
+            </span>
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                micGranted === true
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                  : micGranted === false
+                    ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
+                    : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
+              }`}
+            >
+              {micGranted === true ? "ALLOWED" : micGranted === false ? "BLOCKED" : "SETUP"}
+            </span>
+          </button>
+
           {/* TTS Toggle */}
           <button
             onClick={onToggleTts}
@@ -823,6 +907,133 @@ export default function ZazanAIScreen({
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+      {/* 6. FLOATING GLASS MICROPHONE & VOICE SETTINGS MODAL */}
+      {micSettingsOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="relative w-full max-w-sm sm:max-w-md rounded-2xl bg-[#050a16] border border-sky-500/40 shadow-[0_0_40px_rgba(56,189,248,0.25)] p-5 sm:p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={onCloseMicSettings}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors cursor-pointer"
+              title="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex flex-col items-center text-center space-y-1">
+              <div className="w-12 h-12 rounded-full border border-sky-400 bg-black flex items-center justify-center shadow-[0_0_15px_rgba(56,189,248,0.6)]">
+                {micGranted === true ? (
+                  <Mic className="w-6 h-6 text-emerald-400" />
+                ) : micGranted === false ? (
+                  <MicOff className="w-6 h-6 text-rose-400" />
+                ) : (
+                  <Mic className="w-6 h-6 text-sky-400" />
+                )}
+              </div>
+              <h3 className="font-semibold text-lg text-white">Microphone & Voice Settings</h3>
+              <p className="text-xs text-sky-200/70">
+                Manage speech recognition permissions and audio output
+              </p>
+            </div>
+
+            {/* Current Status Card */}
+            <div
+              className={`p-3.5 rounded-xl border text-xs flex items-start gap-3 ${
+                micGranted === true
+                  ? "bg-emerald-950/20 border-emerald-500/40 text-emerald-200"
+                  : micGranted === false
+                    ? "bg-rose-950/20 border-rose-500/40 text-rose-200"
+                    : "bg-sky-950/20 border-sky-500/30 text-sky-200"
+              }`}
+            >
+              {micGranted === true ? (
+                <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+              ) : micGranted === false ? (
+                <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+              ) : (
+                <Mic className="w-5 h-5 text-sky-400 shrink-0 mt-0.5" />
+              )}
+              <div className="space-y-1">
+                <div className="font-semibold">
+                  {micGranted === true
+                    ? "Microphone Access: Allowed"
+                    : micGranted === false
+                      ? "Microphone Access: Blocked / Denied"
+                      : "Microphone Access: Setup Required"}
+                </div>
+                <div className="text-[11.5px] opacity-90 leading-relaxed">
+                  {micGranted === true
+                    ? "Your microphone is enabled and ready. Tap the glowing orb or waveform button on the home screen to speak to Zazan."
+                    : micGranted === false
+                      ? "Microphone access is denied or blocked. Tap 'Open Device App Settings' below to allow microphone permission in Android settings."
+                      : "Zazan AI requires microphone access to record voice questions and translate speech in real time."}
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={async () => {
+                  await onRequestMicPermission();
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-sky-400 hover:bg-sky-300 text-black font-semibold text-xs transition-all shadow-[0_0_15px_rgba(56,189,248,0.35)] cursor-pointer"
+              >
+                <Mic className="w-4 h-4" />
+                <span>Grant / Request Microphone Access</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  await onOpenAppSettings();
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 border border-sky-500/40 text-sky-200 text-xs font-medium transition-colors cursor-pointer"
+              >
+                <Settings className="w-4 h-4 text-sky-400" />
+                <span>Open Device App Settings (Android)</span>
+                <ExternalLink className="w-3.5 h-3.5 opacity-60 ml-auto" />
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  await onTestSpeech();
+                }}
+                className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-slate-900/60 hover:bg-sky-950/40 border border-slate-700/50 text-slate-300 hover:text-white text-xs transition-colors cursor-pointer"
+              >
+                <Volume2 className="w-4 h-4 text-cyan-400" />
+                <span>Test Voice Speech Output (TTS)</span>
+              </button>
+            </div>
+
+            {/* Step-by-Step Instructions */}
+            <div className="p-3 rounded-xl bg-black/50 border border-slate-800 text-[11.5px] text-slate-400 space-y-2">
+              <div className="font-semibold text-sky-300 flex items-center gap-1.5">
+                <span>📱</span>
+                <span>Manual Android Setup Guide:</span>
+              </div>
+              <ol className="list-decimal pl-4 space-y-1 text-slate-300">
+                <li>
+                  Tap <strong className="text-white">Open Device App Settings</strong> above.
+                </li>
+                <li>
+                  Tap <strong className="text-white">Permissions</strong>.
+                </li>
+                <li>
+                  Tap <strong className="text-white">Microphone</strong>.
+                </li>
+                <li>
+                  Choose <span className="text-emerald-400 font-semibold">"Allow only while using the app"</span>.
+                </li>
+                <li>
+                  Return to Zazan AI and tap the glowing orb to speak!
+                </li>
+              </ol>
+            </div>
           </div>
         </div>
       )}

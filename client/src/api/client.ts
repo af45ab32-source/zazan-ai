@@ -56,13 +56,13 @@ export async function sendChatMessage(
   return data.choices?.[0]?.message?.content ?? "";
 }
 
-export async function speak(text: string, voiceId?: string): Promise<Blob> {
+export async function speak(text: string, voiceId?: string, language?: ZazanLanguage): Promise<Blob> {
   const base = getApiBase();
   try {
     const res = await fetch(`${base}/api/voice/tts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voiceId }),
+      body: JSON.stringify({ text, voiceId, language }),
     });
 
     if (res.ok) {
@@ -80,7 +80,19 @@ export async function speak(text: string, voiceId?: string): Promise<Blob> {
   if (typeof window !== "undefined" && "speechSynthesis" in window) {
     try {
       window.speechSynthesis.cancel();
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
       const utterance = new SpeechSynthesisUtterance(text);
+      if (language) {
+        const langMap: Record<ZazanLanguage, string> = {
+          en: "en-US",
+          ps: "ps-AF",
+          ur: "ur-PK",
+          ar: "ar-SA",
+        };
+        utterance.lang = langMap[language] || "en-US";
+      }
       utterance.rate = 1.0;
       utterance.pitch = 1.0;
       window.speechSynthesis.speak(utterance);

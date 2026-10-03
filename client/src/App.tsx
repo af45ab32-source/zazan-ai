@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { VoiceActions } from "./api/voiceActions";
-import { VoiceAssistant } from "./api/voiceAssistant";
+import { VoiceAssistant, type MicrophoneStatus } from "./api/voiceAssistant";
 import {
   sendChatMessage,
   speak,
@@ -90,6 +90,23 @@ export default function App() {
   const [listening, setListening] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
+  const [micStatus, setMicStatus] = useState<MicrophoneStatus | null>(null);
+  const [micSettingsOpen, setMicSettingsOpen] = useState(false);
+
+  // Check initial microphone status on launch
+  const checkMicPermission = useCallback(async () => {
+    try {
+      const status = await VoiceAssistant.checkMicrophonePermission();
+      setMicStatus(status);
+      return status;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    checkMicPermission();
+  }, [checkMicPermission]);
 
   // Auto-dismiss voice notice after 7 seconds
   useEffect(() => {
@@ -366,7 +383,7 @@ export default function App() {
 
       if (ttsEnabled && reply) {
         try {
-          const audioBlob = await speak(reply);
+          const audioBlob = await speak(reply, undefined, currentLanguage);
           if (audioBlob && audioBlob.size > 0) {
             const url = URL.createObjectURL(audioBlob);
             const audio = new Audio(url);
@@ -406,6 +423,42 @@ export default function App() {
     }
   };
 
+  const handleRequestMicPermission = async () => {
+    try {
+      const res = await VoiceAssistant.requestMicrophonePermission();
+      setMicStatus(res);
+      if (res.granted) {
+        setVoiceNotice("Microphone permission granted! You can now speak to Zazan AI.");
+      } else {
+        setVoiceNotice(res.message || "Microphone access was denied. Please allow microphone in device settings.");
+      }
+    } catch {
+      setVoiceNotice("Could not request microphone access. Please open Settings.");
+    }
+  };
+
+  const handleOpenAppSettings = async () => {
+    try {
+      const res = await VoiceAssistant.openAppSettings();
+      if (!res.success && res.message) {
+        setVoiceNotice(res.message);
+      }
+    } catch {
+      setVoiceNotice("Could not open settings. Please enable microphone permission in device settings.");
+    }
+  };
+
+  const handleTestSpeech = async () => {
+    const testPhrases: Record<ZazanLanguage, string> = {
+      en: "Hello! Zazan AI voice speech output is working properly.",
+      ps: "سلام! د ځاځان ای آی غږ او وینا په سمه توګه کار کوي.",
+      ur: "السلام علیکم! زازان اے آئی کی آواز کا نظام بالکل ٹھیک کام کر رہا ہے۔",
+      ar: "مرحبًا! مخرج الصوت لزازان للذكاء الاصطناعي يعمل بنجاح.",
+    };
+    const text = testPhrases[currentLanguage] || testPhrases.en;
+    await handleReplayAudio(text);
+  };
+
   const handleVoiceInput = async () => {
     if (listening || isThinking) return;
     setVoiceNotice(null);
@@ -415,31 +468,41 @@ export default function App() {
       const res = await VoiceAssistant.listen({ lang: getLanguageTag(currentLanguage) });
 
       if (res.error === "not-allowed") {
+        setMicStatus({ granted: false, state: "denied" });
         setVoiceNotice(
-          "Microphone access was denied or is blocked by your browser. Please allow microphone permissions or type your question below."
+          "Microphone access is blocked or denied. Tap 'Settings' to enable permissions."
         );
         return;
       }
 
       if (res.error === "not-supported") {
         setVoiceNotice(
-          "Voice input is not supported in this browser. Please type your message below or try Google Chrome."
+          "Speech recognition is not available on this device. Please install Google Speech Services or type below."
         );
         return;
       }
 
-      if (res.error) {
-        setVoiceNotice("Could not capture speech. Please try again or type your message.");
+      if (res.error && res.error !== "no-speech") {
+        setVoiceNotice(res.message || "Could not capture speech. Please try again or type your message.");
         return;
       }
+
+      // Successful capture or recognition implies mic permission is granted
+      setMicStatus({ granted: true, state: "granted" });
 
       const text = res.text?.trim();
       if (text) {
         await handleAsk(text);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.warn("Voice input notice:", err);
-      setVoiceNotice("Microphone unavailable. Please type your message below.");
+      const errMsg = String(err?.message || err).toLowerCase();
+      if (errMsg.includes("permission") || errMsg.includes("denied") || errMsg.includes("not-allowed")) {
+        setMicStatus({ granted: false, state: "denied" });
+        setVoiceNotice("Microphone permission denied. Tap 'Settings' to enable.");
+      } else {
+        setVoiceNotice("Microphone unavailable. Please try again or type below.");
+      }
     } finally {
       setListening(false);
     }
@@ -447,7 +510,7 @@ export default function App() {
 
   const handleReplayAudio = async (text: string) => {
     try {
-      const audioBlob = await speak(text);
+      const audioBlob = await speak(text, undefined, currentLanguage);
       if (audioBlob && audioBlob.size > 0) {
         const url = URL.createObjectURL(audioBlob);
         const audio = new Audio(url);
@@ -576,6 +639,13 @@ export default function App() {
       onContinueAsGuest={handleContinueAsGuest}
       voiceNotice={voiceNotice}
       onDismissVoiceNotice={() => setVoiceNotice(null)}
+      micSettingsOpen={micSettingsOpen}
+      onOpenMicSettings={() => setMicSettingsOpen(true)}
+      onCloseMicSettings={() => setMicSettingsOpen(false)}
+      micGranted={micStatus ? micStatus.granted : null}
+      onRequestMicPermission={handleRequestMicPermission}
+      onOpenAppSettings={handleOpenAppSettings}
+      onTestSpeech={handleTestSpeech}
     />
   );
 }
