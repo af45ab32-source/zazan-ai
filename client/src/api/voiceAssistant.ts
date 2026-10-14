@@ -177,7 +177,9 @@ export const VoiceAssistant = registerPlugin<VoiceAssistantPlugin>("VoiceAssista
         eventName: "onVoiceCommand",
         listenerFunc: (data: { text: string }) => void
       ): Promise<PluginListenerHandle> {
-        listeners.push(listenerFunc);
+        if (eventName === "onVoiceCommand") {
+          listeners.push(listenerFunc);
+        }
         return {
           remove: async () => {
             const idx = listeners.indexOf(listenerFunc);
