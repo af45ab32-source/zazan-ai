@@ -1,5 +1,8 @@
 {
 	"appId": "com.zazan.ai",
 	"appName": "Zazan AI",
-	"webDir": "dist"
+	"webDir": "client/dist",
+	"android": {
+		"path": "client/android"
+	}
 }

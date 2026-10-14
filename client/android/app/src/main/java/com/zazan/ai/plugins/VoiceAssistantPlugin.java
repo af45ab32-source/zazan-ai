@@ -2,11 +2,18 @@ package com.zazan.ai.plugins;
 
 import android.Manifest;
 import android.content.ActivityNotFoundException;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.speech.RecognizerIntent;
+import android.util.Log;
+
+import androidx.core.content.ContextCompat;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -16,6 +23,7 @@ import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.PermissionState;
+import com.zazan.ai.services.ZazanVoiceService;
 
 import java.util.ArrayList;
 
@@ -25,13 +33,50 @@ import java.util.ArrayList;
         @Permission(
             alias = "microphone",
             strings = { Manifest.permission.RECORD_AUDIO }
+        ),
+        @Permission(
+            alias = "notifications",
+            strings = { Manifest.permission.POST_NOTIFICATIONS }
         )
     }
 )
 public class VoiceAssistantPlugin extends Plugin {
 
+    private static final String TAG = "VoiceAssistantPlugin";
     private static final int SPEECH_REQUEST = 9001;
     private PluginCall pendingCall;
+    private BroadcastReceiver commandReceiver;
+
+    @Override
+    public void load() {
+        super.load();
+        registerCommandReceiver();
+    }
+
+    private void registerCommandReceiver() {
+        if (commandReceiver == null) {
+            commandReceiver = new BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    if (intent != null && ZazanVoiceService.BROADCAST_VOICE_COMMAND.equals(intent.getAction())) {
+                        String text = intent.getStringExtra(ZazanVoiceService.EXTRA_COMMAND_TEXT);
+                        if (text != null && !text.isEmpty()) {
+                            JSObject data = new JSObject();
+                            data.put("text", text);
+                            notifyListeners("onVoiceCommand", data);
+                        }
+                    }
+                }
+            };
+
+            IntentFilter filter = new IntentFilter(ZazanVoiceService.BROADCAST_VOICE_COMMAND);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                getContext().registerReceiver(commandReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                getContext().registerReceiver(commandReceiver, filter);
+            }
+        }
+    }
 
     @PluginMethod
     public void checkMicrophonePermission(PluginCall call) {
@@ -78,6 +123,83 @@ public class VoiceAssistantPlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Could not open application settings", e);
         }
+    }
+
+    @PluginMethod
+    public void startContinuousListening(PluginCall call) {
+        if (getPermissionState("microphone") != PermissionState.GRANTED) {
+            requestPermissionForAlias("microphone", call, "startContinuousPermissionCallback");
+            return;
+        }
+
+        startVoiceServiceInternal(call);
+    }
+
+    @PermissionCallback
+    public void startContinuousPermissionCallback(PluginCall call) {
+        if (getPermissionState("microphone") == PermissionState.GRANTED) {
+            startVoiceServiceInternal(call);
+        } else {
+            JSObject ret = new JSObject();
+            ret.put("success", false);
+            ret.put("running", false);
+            ret.put("error", "not-allowed");
+            ret.put("message", "Microphone permission is required for background listening.");
+            call.resolve(ret);
+        }
+    }
+
+    private void startVoiceServiceInternal(PluginCall call) {
+        try {
+            Intent intent = new Intent(getContext(), ZazanVoiceService.class);
+            intent.setAction(ZazanVoiceService.ACTION_START);
+            String lang = call.getString("lang", "en-US");
+            intent.putExtra("lang", lang);
+
+            ContextCompat.startForegroundService(getContext(), intent);
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("running", true);
+            ret.put("message", "Continuous voice assistant activated.");
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start ZazanVoiceService", e);
+            JSObject ret = new JSObject();
+            ret.put("success", false);
+            ret.put("running", false);
+            ret.put("error", e.getMessage());
+            call.resolve(ret);
+        }
+    }
+
+    @PluginMethod
+    public void stopContinuousListening(PluginCall call) {
+        try {
+            Intent intent = new Intent(getContext(), ZazanVoiceService.class);
+            intent.setAction(ZazanVoiceService.ACTION_STOP);
+            getContext().startService(intent);
+
+            JSObject ret = new JSObject();
+            ret.put("success", true);
+            ret.put("running", false);
+            ret.put("message", "Continuous voice assistant stopped.");
+            call.resolve(ret);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to stop ZazanVoiceService", e);
+            JSObject ret = new JSObject();
+            ret.put("success", false);
+            ret.put("running", false);
+            ret.put("error", e.getMessage());
+            call.resolve(ret);
+        }
+    }
+
+    @PluginMethod
+    public void isContinuousListeningActive(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("active", ZazanVoiceService.isRunning());
+        call.resolve(ret);
     }
 
     @PluginMethod
@@ -182,5 +304,16 @@ public class VoiceAssistantPlugin extends Plugin {
         JSObject result = new JSObject();
         result.put("text", results.get(0));
         call.resolve(result);
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        if (commandReceiver != null) {
+            try {
+                getContext().unregisterReceiver(commandReceiver);
+            } catch (Exception ignored) {}
+            commandReceiver = null;
+        }
+        super.handleOnDestroy();
     }
 }

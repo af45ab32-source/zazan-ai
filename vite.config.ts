@@ -11,7 +11,7 @@ export default defineConfig({
   root: path.resolve(__dirname, "client"),
   plugins: [react(), tailwindcss()],
   build: {
-    outDir: path.resolve(__dirname, "dist"),
+    outDir: path.resolve(__dirname, "client/dist"),
     emptyOutDir: true,
   },
   server: {

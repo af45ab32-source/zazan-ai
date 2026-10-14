@@ -27,6 +27,9 @@ import {
   ShieldCheck,
   AlertCircle,
   ExternalLink,
+  Radio,
+  Server,
+  RefreshCw,
 } from "lucide-react";
 import type { ZazanMode, ZazanLanguage, ChatMessage } from "./api/client";
 import type { User } from "@supabase/supabase-js";
@@ -76,6 +79,12 @@ export interface ZazanAIScreenProps {
   onRequestMicPermission: () => Promise<void>;
   onOpenAppSettings: () => Promise<void>;
   onTestSpeech: () => Promise<void>;
+
+  continuousListening: boolean;
+  onToggleContinuousListening: () => void;
+  apiBaseUrl: string;
+  onSaveApiBaseUrl: (url: string) => void;
+  onTestApiConnection: (url?: string) => Promise<{ ok: boolean; status: number; message: string }>;
 }
 
 const MODES: Array<{ id: ZazanMode; label: string; icon: React.ComponentType<{ className?: string }>; desc: string }> = [
@@ -133,10 +142,24 @@ export default function ZazanAIScreen({
   onRequestMicPermission,
   onOpenAppSettings,
   onTestSpeech,
+  continuousListening,
+  onToggleContinuousListening,
+  apiBaseUrl,
+  onSaveApiBaseUrl,
+  onTestApiConnection,
 }: ZazanAIScreenProps) {
   const [inputText, setInputText] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  // API Configuration state
+  const [customUrlInput, setCustomUrlInput] = useState(apiBaseUrl);
+  const [testingApi, setTestingApi] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    setCustomUrlInput(apiBaseUrl);
+  }, [apiBaseUrl]);
 
   // Auth modal form state
   const [authEmail, setAuthEmail] = useState("");
@@ -750,6 +773,21 @@ export default function ZazanAIScreen({
             </span>
           </button>
 
+          {/* Continuous Background Assistant Toggle */}
+          <button
+            type="button"
+            onClick={onToggleContinuousListening}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs bg-slate-900/60 border border-slate-700/40 text-slate-200 hover:bg-sky-950/40 transition-colors cursor-pointer"
+          >
+            <span className="flex items-center gap-2">
+              <Radio className={`w-4 h-4 ${continuousListening ? "text-emerald-400 animate-pulse" : "text-slate-500"}`} />
+              <span>Background Voice Assistant</span>
+            </span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${continuousListening ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30" : "bg-slate-800 text-slate-400"}`}>
+              {continuousListening ? "ON" : "OFF"}
+            </span>
+          </button>
+
           {/* TTS Toggle */}
           <button
             onClick={onToggleTts}
@@ -761,6 +799,24 @@ export default function ZazanAIScreen({
             </span>
             <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${ttsEnabled ? "bg-sky-500/20 text-sky-300" : "bg-slate-800 text-slate-400"}`}>
               {ttsEnabled ? "ON" : "OFF"}
+            </span>
+          </button>
+
+          {/* API Server Configuration */}
+          <button
+            type="button"
+            onClick={() => {
+              setDrawerOpen(false);
+              onOpenMicSettings();
+            }}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs bg-slate-900/60 border border-slate-700/40 text-slate-200 hover:bg-sky-950/40 transition-colors cursor-pointer"
+          >
+            <span className="flex items-center gap-2 truncate">
+              <Server className="w-4 h-4 text-sky-400 shrink-0" />
+              <span className="truncate">Backend Server URL</span>
+            </span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-sky-500/20 text-sky-300 shrink-0">
+              {apiBaseUrl ? "Configured" : "Required"}
             </span>
           </button>
 
@@ -1010,11 +1066,127 @@ export default function ZazanAIScreen({
               </button>
             </div>
 
+            {/* Continuous Background Assistant Section */}
+            <div className="p-3.5 rounded-xl border border-sky-500/30 bg-[#09152b]/60 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Radio className={`w-4 h-4 ${continuousListening ? "text-emerald-400 animate-pulse" : "text-slate-400"}`} />
+                  <span className="font-semibold text-xs text-white">Background Assistant (Android)</span>
+                </div>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded font-mono font-semibold ${
+                    continuousListening
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                      : "bg-slate-800 text-slate-400 border border-slate-700"
+                  }`}
+                >
+                  {continuousListening ? "ACTIVE" : "DISABLED"}
+                </span>
+              </div>
+              <p className="text-[11.5px] text-slate-300 leading-relaxed">
+                Runs an Android foreground service with an official persistent notification. Allows you to open WhatsApp or other apps and say commands like <span className="text-sky-300">"Open YouTube"</span>, <span className="text-sky-300">"Open Facebook"</span>, or <span className="text-sky-300">"Stop listening"</span>.
+              </p>
+              <button
+                type="button"
+                onClick={onToggleContinuousListening}
+                className={`w-full py-2 px-3 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                  continuousListening
+                    ? "bg-rose-950/60 hover:bg-rose-900/70 border border-rose-500/40 text-rose-200"
+                    : "bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200"
+                }`}
+              >
+                <Radio className="w-3.5 h-3.5" />
+                <span>{continuousListening ? "Stop Background Assistant" : "Enable Background Assistant"}</span>
+              </button>
+            </div>
+
+            {/* Backend API Server Configuration Section */}
+            <div className="p-3.5 rounded-xl border border-sky-500/30 bg-[#09152b]/60 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Server className="w-4 h-4 text-sky-400" />
+                  <span className="font-semibold text-xs text-white">Backend API Server URL</span>
+                </div>
+                <span className="text-[10px] text-slate-400">Production APK</span>
+              </div>
+              <p className="text-[11.5px] text-slate-300 leading-relaxed">
+                Target endpoint for Gemini AI chat requests. Ensure this points to your live Cloud Run deployment.
+              </p>
+              <div className="space-y-1.5">
+                <input
+                  type="text"
+                  value={customUrlInput}
+                  onChange={(e) => {
+                    setCustomUrlInput(e.target.value);
+                    setTestResult(null);
+                  }}
+                  placeholder="https://...run.app"
+                  className="w-full px-3 py-2 rounded-xl bg-black/80 border border-sky-500/30 text-white text-xs placeholder:text-slate-600 focus:outline-none focus:border-sky-400 font-mono"
+                />
+                <div className="flex items-center gap-2 pt-0.5">
+                  <button
+                    type="button"
+                    disabled={testingApi}
+                    onClick={async () => {
+                      setTestingApi(true);
+                      setTestResult(null);
+                      try {
+                        const res = await onTestApiConnection(customUrlInput);
+                        setTestResult({ ok: res.ok, message: res.message });
+                      } finally {
+                        setTestingApi(false);
+                      }
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-sky-950/60 hover:bg-sky-900/60 border border-sky-500/40 text-sky-200 text-xs transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${testingApi ? "animate-spin" : ""}`} />
+                    <span>{testingApi ? "Testing..." : "Test Connection"}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSaveApiBaseUrl(customUrlInput);
+                    }}
+                    className="py-1.5 px-3 rounded-lg bg-sky-500/30 hover:bg-sky-500/40 border border-sky-400/50 text-white font-medium text-xs transition-colors cursor-pointer"
+                  >
+                    Save URL
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const def = "https://ais-pre-cdmri3slamuy2l6thzyprc-397168373823.asia-southeast1.run.app";
+                      setCustomUrlInput(def);
+                      onSaveApiBaseUrl(def);
+                      setTestResult(null);
+                    }}
+                    className="py-1.5 px-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs transition-colors cursor-pointer"
+                    title="Reset to default cloud backend"
+                  >
+                    Reset
+                  </button>
+                </div>
+                {testResult && (
+                  <div
+                    className={`p-2 rounded-lg text-xs flex items-center gap-2 ${
+                      testResult.ok
+                        ? "bg-emerald-950/40 border border-emerald-500/40 text-emerald-300"
+                        : "bg-rose-950/40 border border-rose-500/40 text-rose-300"
+                    }`}
+                  >
+                    {testResult.ok ? <ShieldCheck className="w-3.5 h-3.5 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
+                    <span>{testResult.message}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Step-by-Step Instructions */}
             <div className="p-3 rounded-xl bg-black/50 border border-slate-800 text-[11.5px] text-slate-400 space-y-2">
               <div className="font-semibold text-sky-300 flex items-center gap-1.5">
                 <span>📱</span>
-                <span>Manual Android Setup Guide:</span>
+                <span>Manual Android Permissions Guide:</span>
               </div>
               <ol className="list-decimal pl-4 space-y-1 text-slate-300">
                 <li>
@@ -1024,13 +1196,10 @@ export default function ZazanAIScreen({
                   Tap <strong className="text-white">Permissions</strong>.
                 </li>
                 <li>
-                  Tap <strong className="text-white">Microphone</strong>.
+                  Tap <strong className="text-white">Microphone</strong> &rarr; Choose <span className="text-emerald-400 font-semibold">"Allow only while using the app"</span>.
                 </li>
                 <li>
-                  Choose <span className="text-emerald-400 font-semibold">"Allow only while using the app"</span>.
-                </li>
-                <li>
-                  Return to Zazan AI and tap the glowing orb to speak!
+                  If using Background Assistant, also allow <span className="text-sky-300">Notifications</span> (Android 13+).
                 </li>
               </ol>
             </div>

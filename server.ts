@@ -54,7 +54,9 @@ async function startServer() {
       }
     });
   } else {
-    const distDir = path.resolve(__dirname, "dist");
+    const clientDist = path.resolve(__dirname, "client/dist");
+    const rootDist = path.resolve(__dirname, "dist");
+    const distDir = fs.existsSync(clientDist) ? clientDist : rootDist;
     app.use(express.static(distDir));
     app.get("*", (_req, res) => {
       res.sendFile(path.resolve(distDir, "index.html"));

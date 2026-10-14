@@ -17,7 +17,7 @@ interface ChatRequestBody {
 
 function getGenAI(): GoogleGenAI {
   return new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY,
+    apiKey: config.gemini.apiKey || process.env.GEMINI_API_KEY,
     httpOptions: {
       headers: {
         "User-Agent": "aistudio-build",
@@ -79,15 +79,26 @@ function toGeminiRequest(messages: ChatMessage[], mode?: string, language?: stri
 }
 
 chatRouter.post(["/", ""], async (req: Request, res: Response) => {
-  const body = req.body as Partial<ChatRequestBody>;
+  const body = req.body || {};
+  let messages: ChatMessage[] = [];
 
-  if (!Array.isArray(body.messages) || body.messages.length === 0) {
-    return res.status(400).json({ error: "`messages` array is required." });
+  if (Array.isArray(body.messages)) {
+    messages = body.messages;
+  } else if (typeof body.prompt === "string" && body.prompt.trim()) {
+    messages = [{ role: "user", content: body.prompt.trim() }];
+  } else if (typeof body.message === "string" && body.message.trim()) {
+    messages = [{ role: "user", content: body.message.trim() }];
+  } else if (typeof body.text === "string" && body.text.trim()) {
+    messages = [{ role: "user", content: body.text.trim() }];
+  }
+
+  if (messages.length === 0) {
+    return res.status(400).json({ error: "`messages` array or `prompt`/`message` string is required." });
   }
 
   try {
     const { systemInstruction, contents } = toGeminiRequest(
-      body.messages,
+      messages,
       body.mode,
       body.language
     );
@@ -99,7 +110,7 @@ chatRouter.post(["/", ""], async (req: Request, res: Response) => {
     }
 
     const genAI = getGenAI();
-    const targetModel = "gemini-3.8-flash";
+    const targetModel = config.gemini.model || "gemini-3.8-flash";
 
     let text = "";
     let lastError: unknown = null;
@@ -138,6 +149,8 @@ chatRouter.post(["/", ""], async (req: Request, res: Response) => {
           message: { role: "assistant", content: text },
         },
       ],
+      reply: text,
+      text: text,
     });
   } catch (err: unknown) {
     handleGeminiError(err, res);

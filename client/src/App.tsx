@@ -1,9 +1,13 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { VoiceActions } from "./api/voiceActions";
 import { VoiceAssistant, type MicrophoneStatus } from "./api/voiceAssistant";
+import { classifyVoiceCommand, executeNativeAction } from "./api/commandRouter";
 import {
   sendChatMessage,
   speak,
+  getApiBase,
+  setCustomApiBase,
+  testApiConnection,
   type ChatMessage,
   type ZazanMode,
   type ZazanLanguage,
@@ -92,12 +96,18 @@ export default function App() {
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const [micStatus, setMicStatus] = useState<MicrophoneStatus | null>(null);
   const [micSettingsOpen, setMicSettingsOpen] = useState(false);
+  const [continuousListening, setContinuousListening] = useState(false);
+  const [apiBaseUrl, setApiBaseUrl] = useState(() => getApiBase());
 
-  // Check initial microphone status on launch
+  // Check initial microphone and continuous listening status on launch
   const checkMicPermission = useCallback(async () => {
     try {
       const status = await VoiceAssistant.checkMicrophonePermission();
       setMicStatus(status);
+
+      const continuousStatus = await VoiceAssistant.isContinuousListeningActive();
+      setContinuousListening(continuousStatus.active);
+
       return status;
     } catch {
       return null;
@@ -107,6 +117,26 @@ export default function App() {
   useEffect(() => {
     checkMicPermission();
   }, [checkMicPermission]);
+
+  // Setup background voice command listener
+  useEffect(() => {
+    let handle: any = null;
+    try {
+      VoiceAssistant.addListener("onVoiceCommand", async (data: { text: string }) => {
+        if (data && data.text) {
+          handleAsk(data.text);
+        }
+      }).then((h) => {
+        handle = h;
+      }).catch(() => {});
+    } catch (e) {
+      console.warn("Could not attach onVoiceCommand listener", e);
+    }
+
+    return () => {
+      if (handle && handle.remove) handle.remove();
+    };
+  }, []);
 
   // Auto-dismiss voice notice after 7 seconds
   useEffect(() => {
@@ -289,63 +319,76 @@ export default function App() {
   };
 
   const handleVoiceCommand = async (text: string): Promise<boolean> => {
-    const cmd = text.toLowerCase().trim();
+    const routed = classifyVoiceCommand(text);
 
-    // YouTube
-    if (cmd.includes("open youtube") || cmd === "youtube") {
-      await VoiceActions.openYouTube({});
-      return true;
-    }
-    if (cmd.startsWith("search youtube for ") || cmd.startsWith("youtube ")) {
-      const query = cmd.replace(/^(search youtube for|youtube)\s+/, "");
-      await VoiceActions.openYouTube({ query });
-      return true;
-    }
-
-    // Maps
-    if (cmd.includes("open maps") || cmd.includes("open google maps")) {
-      await VoiceActions.openMaps({});
-      return true;
-    }
-    if (cmd.startsWith("directions to ") || cmd.startsWith("navigate to ") || cmd.startsWith("maps ")) {
-      const query = cmd.replace(/^(directions to|navigate to|maps)\s+/, "");
-      await VoiceActions.openMaps({ query });
-      return true;
-    }
-
-    // Camera
-    if (cmd === "open camera" || cmd === "take a picture" || cmd === "camera") {
-      await VoiceActions.openCamera();
-      return true;
-    }
-
-    // WhatsApp
-    if (cmd.includes("open whatsapp") || cmd === "whatsapp") {
-      await VoiceActions.openWhatsApp({});
-      return true;
-    }
-
-    // App Launchers
-    const apps: Record<string, string> = {
-      whatsapp: "com.whatsapp",
-      facebook: "com.facebook.katana",
-      tiktok: "com.zhiliaoapp.musically",
-      youtube: "com.google.android.youtube",
-      instagram: "com.instagram.android",
-    };
-
-    for (const [name, packageName] of Object.entries(apps)) {
-      if (cmd.includes("open " + name) || cmd === name) {
-        try {
-          await VoiceActions.openApp({ packageName });
-          return true;
-        } catch (error) {
-          console.error("Could not open app:", error);
-          return false;
-        }
+    // 1. Native app opening / device actions
+    if (routed.type === "native_action") {
+      if (routed.feedbackMessage) {
+        setVoiceNotice(routed.feedbackMessage);
       }
+      const res = await executeNativeAction(routed);
+      if (res.message) {
+        setVoiceNotice(res.message);
+      }
+      if (ttsEnabled && res.message) {
+        speak(res.message, undefined, currentLanguage).then((blob) => {
+          if (blob && blob.size > 0) {
+            const url = URL.createObjectURL(blob);
+            const a = new Audio(url);
+            a.onended = () => URL.revokeObjectURL(url);
+            a.play().catch(() => {});
+          }
+        }).catch(() => {});
+      }
+      return true; // Completely handled, do NOT send to Gemini
     }
 
+    // 2. Assistant controls
+    if (routed.type === "assistant_control") {
+      switch (routed.action) {
+        case "stop_listening":
+          await VoiceAssistant.stopContinuousListening();
+          setContinuousListening(false);
+          setVoiceNotice("Background voice assistant stopped.");
+          break;
+
+        case "start_listening":
+          await handleToggleContinuousListening();
+          break;
+
+        case "disable_tts":
+          setTtsEnabled(false);
+          localStorage.setItem(STORAGE_KEYS.TTS, "false");
+          setVoiceNotice("Voice speech output turned off.");
+          break;
+
+        case "enable_tts":
+          setTtsEnabled(true);
+          localStorage.setItem(STORAGE_KEYS.TTS, "true");
+          setVoiceNotice("Voice speech output turned on.");
+          break;
+
+        case "clear_chat":
+          handleClearMessages();
+          setVoiceNotice("Current chat cleared.");
+          break;
+
+        case "new_chat":
+          handleNewChat();
+          setVoiceNotice("Started new conversation.");
+          break;
+      }
+      return true;
+    }
+
+    // 3. Assistant mode switches
+    if (routed.type === "mode_switch" && routed.target) {
+      handleSelectMode(routed.target as ZazanMode);
+      setVoiceNotice(routed.feedbackMessage || `Switched mode to ${routed.target}.`);
+      return true;
+    }
+
+    // 4. Regular chat -> send to Gemini
     return false;
   };
 
@@ -457,6 +500,38 @@ export default function App() {
     };
     const text = testPhrases[currentLanguage] || testPhrases.en;
     await handleReplayAudio(text);
+  };
+
+  const handleToggleContinuousListening = async () => {
+    try {
+      if (continuousListening) {
+        const res = await VoiceAssistant.stopContinuousListening();
+        setContinuousListening(false);
+        setVoiceNotice(res.message || "Background voice assistant stopped.");
+      } else {
+        const res = await VoiceAssistant.startContinuousListening({
+          lang: getLanguageTag(currentLanguage),
+        });
+        if (res.running) {
+          setContinuousListening(true);
+          setVoiceNotice("Background voice assistant active. You can speak commands anytime.");
+        } else {
+          setVoiceNotice(res.message || res.error || "Failed to start background assistant.");
+        }
+      }
+    } catch (err: any) {
+      setVoiceNotice(err?.message || "Could not toggle background assistant.");
+    }
+  };
+
+  const handleSaveApiBase = (newUrl: string) => {
+    setCustomApiBase(newUrl);
+    setApiBaseUrl(getApiBase());
+    setVoiceNotice("Backend API URL updated.");
+  };
+
+  const handleTestApiConnection = async (testUrl?: string) => {
+    return await testApiConnection(testUrl);
   };
 
   const handleVoiceInput = async () => {
@@ -646,6 +721,11 @@ export default function App() {
       onRequestMicPermission={handleRequestMicPermission}
       onOpenAppSettings={handleOpenAppSettings}
       onTestSpeech={handleTestSpeech}
+      continuousListening={continuousListening}
+      onToggleContinuousListening={handleToggleContinuousListening}
+      apiBaseUrl={apiBaseUrl}
+      onSaveApiBaseUrl={handleSaveApiBase}
+      onTestApiConnection={handleTestApiConnection}
     />
   );
 }
