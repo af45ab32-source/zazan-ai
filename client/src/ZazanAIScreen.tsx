@@ -1156,9 +1156,8 @@ export default function ZazanAIScreen({
                   <button
                     type="button"
                     onClick={() => {
-                      const def = "https://ais-pre-cdmri3slamuy2l6thzyprc-397168373823.asia-southeast1.run.app";
-                      setCustomUrlInput(def);
-                      onSaveApiBaseUrl(def);
+                      setCustomUrlInput("");
+                      onSaveApiBaseUrl("");
                       setTestResult(null);
                     }}
                     className="py-1.5 px-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-xs transition-colors cursor-pointer"

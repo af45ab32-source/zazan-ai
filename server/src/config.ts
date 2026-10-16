@@ -12,13 +12,13 @@ const DEPRECATED_MODELS = new Set([
 
 function resolveModel(envModel?: string): string {
   if (!envModel || DEPRECATED_MODELS.has(envModel.trim())) {
-    return "gemini-3.8-flash";
+    return "gemini-3.5-flash";
   }
   return envModel.trim();
 }
 
 export const config = {
-  port: Number(process.env.PORT ?? 3000),
+  port: process.env.PORT ? Number(process.env.PORT) : 5000,
   clientOrigin: process.env.CLIENT_ORIGIN ?? "*",
 
   gemini: {

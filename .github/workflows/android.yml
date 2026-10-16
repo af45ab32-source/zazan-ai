@@ -33,7 +33,7 @@ jobs:
       - name: Build frontend web assets
         working-directory: client
         env:
-          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || secrets.API_BASE_URL || 'https://ais-pre-cdmri3slamuy2l6thzyprc-397168373823.asia-southeast1.run.app' }}
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || secrets.API_BASE_URL || '' }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://sqbzzinfdmrxyjvwrlns.supabase.co' }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'sb_publishable_lOk7hTWfKuDEr6r1Xc9qCA_aIx3ipIF' }}
         run: npm run build

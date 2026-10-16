@@ -24,10 +24,9 @@ export const STORAGE_KEYS = {
   MSGS: "zazan_msgs_",
 };
 
-export const DEFAULT_PRODUCTION_API_BASE =
-  "https://ais-pre-cdmri3slamuy2l6thzyprc-397168373823.asia-southeast1.run.app";
+export const DEFAULT_PRODUCTION_API_BASE = "";
 
-function isDisallowedLocalhost(url: string): boolean {
+function isDisallowedUrl(url: string): boolean {
   if (!url) return false;
   // If in dev mode in browser, localhost is allowed
   if (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.DEV) {
@@ -38,7 +37,9 @@ function isDisallowedLocalhost(url: string): boolean {
     clean.includes("127.0.0.1:5000") ||
     clean.includes("localhost:5000") ||
     clean.includes("127.0.0.1") ||
-    clean.includes("localhost")
+    clean.includes("localhost") ||
+    clean.includes("ais-pre-") ||
+    clean.includes("ais-dev-")
   );
 }
 
@@ -78,14 +79,14 @@ export function setCustomApiBase(url: string): void {
 export function getApiBase(): string {
   // 1. User manual override from Settings stored in localStorage["zazan_api_base"]
   const userOverride = getStoredApiBase();
-  if (userOverride && !isDisallowedLocalhost(userOverride)) {
+  if (userOverride && !isDisallowedUrl(userOverride)) {
     return userOverride.replace(/\/+$/, "");
   }
 
   // 2. Build-time environment variables (VITE_API_BASE_URL or VITE_API_BASE)
   if (typeof import.meta !== "undefined" && import.meta.env) {
     const envUrl = (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || "")?.trim();
-    if (envUrl && !isDisallowedLocalhost(envUrl)) {
+    if (envUrl && !isDisallowedUrl(envUrl)) {
       return envUrl.replace(/\/+$/, "");
     }
   }
@@ -119,11 +120,23 @@ export async function testApiConnection(customUrl?: string): Promise<{
   message: string;
 }> {
   const base = (customUrl !== undefined ? customUrl : getApiBase()).replace(/\/+$/, "");
+  const isNativeApp =
+    typeof window !== "undefined" &&
+    (window.location.protocol === "capacitor:" ||
+      window.location.protocol === "ionic:" ||
+      (window.location.origin.includes("localhost") &&
+        typeof import.meta !== "undefined" &&
+        !import.meta.env?.DEV));
+
+  if (!base && isNativeApp) {
+    return { ok: false, status: 0, message: "Please enter a backend server URL to test." };
+  }
+  const targetUrl = base ? `${base}/api/health` : "/api/health";
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 8000);
 
   try {
-    const res = await fetch(`${base}/api/health`, {
+    const res = await fetch(targetUrl, {
       method: "GET",
       signal: controller.signal,
     });
@@ -167,7 +180,20 @@ export async function sendChatMessage(
   language: ZazanLanguage = "en"
 ): Promise<string> {
   const base = getApiBase();
-  const targetUrl = `${base}/api/chat`;
+  const isNativeApp =
+    typeof window !== "undefined" &&
+    (window.location.protocol === "capacitor:" ||
+      window.location.protocol === "ionic:" ||
+      (window.location.origin.includes("localhost") &&
+        typeof import.meta !== "undefined" &&
+        !import.meta.env?.DEV));
+
+  if (!base && isNativeApp) {
+    throw new Error(
+      "Backend API Server URL is not configured. Please open Settings and enter your live Vercel Backend URL (e.g. https://your-zazan.vercel.app)."
+    );
+  }
+  const targetUrl = base ? `${base}/api/chat` : "/api/chat";
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 35000);
@@ -267,7 +293,8 @@ export async function speak(
 ): Promise<Blob> {
   const base = getApiBase();
   try {
-    const res = await fetch(`${base}/api/voice/tts`, {
+    const targetUrl = base ? `${base}/api/voice/tts` : "/api/voice/tts";
+    const res = await fetch(targetUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, voiceId, language }),

@@ -4,15 +4,31 @@ import { config } from "../config.js";
 
 export const chatRouter = Router();
 
-interface ChatMessage {
+export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
 }
 
-interface ChatRequestBody {
-  messages: ChatMessage[];
+export interface ChatRequestBody {
+  messages?: ChatMessage[];
+  message?: string;
+  prompt?: string;
+  text?: string;
   mode?: string;
   language?: string;
+}
+
+export interface ChatResponseResult {
+  status: number;
+  data:
+    | {
+        choices: Array<{ message: { role: string; content: string } }>;
+        reply: string;
+        text: string;
+      }
+    | {
+        error: string;
+      };
 }
 
 function getGenAI(): GoogleGenAI {
@@ -78,87 +94,8 @@ function toGeminiRequest(messages: ChatMessage[], mode?: string, language?: stri
   return { systemInstruction, contents };
 }
 
-chatRouter.post(["/", ""], async (req: Request, res: Response) => {
-  const body = req.body || {};
-  let messages: ChatMessage[] = [];
-
-  if (Array.isArray(body.messages)) {
-    messages = body.messages;
-  } else if (typeof body.prompt === "string" && body.prompt.trim()) {
-    messages = [{ role: "user", content: body.prompt.trim() }];
-  } else if (typeof body.message === "string" && body.message.trim()) {
-    messages = [{ role: "user", content: body.message.trim() }];
-  } else if (typeof body.text === "string" && body.text.trim()) {
-    messages = [{ role: "user", content: body.text.trim() }];
-  }
-
-  if (messages.length === 0) {
-    return res.status(400).json({ error: "`messages` array or `prompt`/`message` string is required." });
-  }
-
-  try {
-    const { systemInstruction, contents } = toGeminiRequest(
-      messages,
-      body.mode,
-      body.language
-    );
-
-    if (contents.length === 0) {
-      return res
-        .status(400)
-        .json({ error: "At least one user or assistant message is required." });
-    }
-
-    const genAI = getGenAI();
-    const targetModel = config.gemini.model || "gemini-3.8-flash";
-
-    let text = "";
-    let lastError: unknown = null;
-    const maxAttempts = 3;
-
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const result = await genAI.models.generateContent({
-          model: targetModel,
-          contents,
-          config: systemInstruction ? { systemInstruction } : undefined,
-        });
-        text = result.text ?? "";
-        lastError = null;
-        break;
-      } catch (err: unknown) {
-        lastError = err;
-        const msg = err instanceof Error ? err.message : String(err);
-        const isUnavailable = /high demand|temporarily unavailable|UNAVAILABLE|503/i.test(msg);
-        if (isUnavailable && attempt < maxAttempts) {
-          console.warn(`Gemini 503 high demand spike, retrying (attempt ${attempt}/${maxAttempts})...`);
-          await new Promise((r) => setTimeout(r, 600 * attempt));
-          continue;
-        }
-        break;
-      }
-    }
-
-    if (lastError && !text) {
-      throw lastError;
-    }
-
-    return res.json({
-      choices: [
-        {
-          message: { role: "assistant", content: text },
-        },
-      ],
-      reply: text,
-      text: text,
-    });
-  } catch (err: unknown) {
-    handleGeminiError(err, res);
-  }
-});
-
-function handleGeminiError(err: unknown, res: Response): void {
-  console.error("Gemini chat route error:", err);
+export function formatGeminiError(err: unknown): ChatResponseResult {
+  console.error("Gemini chat error:", err);
 
   const status =
     (typeof err === "object" && err !== null && "status" in err
@@ -176,30 +113,148 @@ function handleGeminiError(err: unknown, res: Response): void {
     /API key not valid|API_KEY_INVALID|UNAUTHENTICATED/i.test(message);
 
   if (isQuotaOrRateLimit) {
-    res.status(429).json({
-      error:
-        "Gemini API quota or rate limit reached. Please wait a moment and try again.",
-    });
-    return;
+    return {
+      status: 429,
+      data: {
+        error: "Gemini API quota or rate limit reached. Please wait a moment and try again.",
+      },
+    };
   }
 
   if (isUnavailable) {
-    res.status(503).json({
-      error:
-        "Gemini model is currently experiencing high demand. Please try again in a few seconds.",
-    });
-    return;
+    return {
+      status: 503,
+      data: {
+        error: "Gemini model is currently experiencing high demand. Please try again in a few seconds.",
+      },
+    };
   }
 
   if (isAuthError) {
-    res.status(401).json({
-      error:
-        "Gemini API authentication failed. Please verify that GEMINI_API_KEY is configured.",
-    });
-    return;
+    return {
+      status: 401,
+      data: {
+        error: "Gemini API authentication failed. Please verify that GEMINI_API_KEY is configured.",
+      },
+    };
   }
 
-  res.status(status && status >= 400 && status < 600 ? status : 500).json({
-    error: err instanceof Error ? err.message : "Gemini API request failed.",
-  });
+  return {
+    status: status && status >= 400 && status < 600 ? status : 500,
+    data: {
+      error: err instanceof Error ? err.message : "Gemini API request failed.",
+    },
+  };
 }
+
+export async function processChat(body: ChatRequestBody): Promise<ChatResponseResult> {
+  const rawBody = body || {};
+  let messages: ChatMessage[] = [];
+
+  if (Array.isArray(rawBody.messages)) {
+    messages = rawBody.messages;
+  } else if (typeof rawBody.prompt === "string" && rawBody.prompt.trim()) {
+    messages = [{ role: "user", content: rawBody.prompt.trim() }];
+  } else if (typeof rawBody.message === "string" && rawBody.message.trim()) {
+    messages = [{ role: "user", content: rawBody.message.trim() }];
+  } else if (typeof rawBody.text === "string" && rawBody.text.trim()) {
+    messages = [{ role: "user", content: rawBody.text.trim() }];
+  }
+
+  if (messages.length === 0) {
+    return {
+      status: 400,
+      data: { error: "`messages` array or `prompt`/`message` string is required." },
+    };
+  }
+
+  try {
+    const { systemInstruction, contents } = toGeminiRequest(
+      messages,
+      rawBody.mode,
+      rawBody.language
+    );
+
+    if (contents.length === 0) {
+      return {
+        status: 400,
+        data: { error: "At least one user or assistant message is required." },
+      };
+    }
+
+    const genAI = getGenAI();
+    const primaryModel = config.gemini.model || "gemini-3.5-flash";
+    const modelsToTry = Array.from(
+      new Set([
+        primaryModel,
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-flash-lite-latest",
+        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash",
+        "gemini-flash-latest",
+      ])
+    );
+
+    let text = "";
+    let lastError: unknown = null;
+
+    for (const model of modelsToTry) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const result = await genAI.models.generateContent({
+            model,
+            contents,
+            config: systemInstruction ? { systemInstruction } : undefined,
+          });
+          text = result.text ?? "";
+          lastError = null;
+          break;
+        } catch (err: unknown) {
+          lastError = err;
+          const msg = err instanceof Error ? err.message : String(err);
+          const isUnavailable = /high demand|temporarily unavailable|UNAVAILABLE|503/i.test(msg);
+          const isQuota = /quota|rate.?limit|RESOURCE_EXHAUSTED|429/i.test(msg);
+
+          if (isUnavailable && attempt < 2) {
+            console.warn(`Model ${model} 503 spike, retrying...`);
+            await new Promise((r) => setTimeout(r, 800));
+            continue;
+          }
+          if (isUnavailable || isQuota) {
+            console.warn(`Model ${model} unavailable or quota reached, trying next fallback model...`);
+          }
+          break;
+        }
+      }
+
+      if (text) {
+        break;
+      }
+    }
+
+    if (lastError && !text) {
+      throw lastError;
+    }
+
+    return {
+      status: 200,
+      data: {
+        choices: [
+          {
+            message: { role: "assistant", content: text },
+          },
+        ],
+        reply: text,
+        text: text,
+      },
+    };
+  } catch (err: unknown) {
+    return formatGeminiError(err);
+  }
+}
+
+chatRouter.post(["/", ""], async (req: Request, res: Response) => {
+  const result = await processChat(req.body);
+  return res.status(result.status).json(result.data);
+});

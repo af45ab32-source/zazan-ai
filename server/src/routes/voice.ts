@@ -3,27 +3,27 @@ import { config } from "../config.js";
 
 export const voiceRouter = Router();
 
-interface TtsRequestBody {
+export interface TtsRequestBody {
   text: string;
   voiceId?: string;
 }
 
-voiceRouter.post("/tts", async (req: Request, res: Response) => {
-  const body = req.body as Partial<TtsRequestBody>;
-
-  if (!body.text || typeof body.text !== "string") {
-    return res.status(400).json({ error: "`text` is required." });
+export async function processTts(body: Partial<TtsRequestBody>, res: any): Promise<void> {
+  if (!body || !body.text || typeof body.text !== "string") {
+    res.status(400).json({ error: "`text` is required." });
+    return;
   }
 
   const voiceId = body.voiceId || config.elevenlabs.voiceId;
   const apiKey = config.elevenlabs.apiKey || process.env.ELEVENLABS_API_KEY;
 
   if (!apiKey || !voiceId) {
-    return res.status(200).json({
+    res.status(200).json({
       fallback: true,
       provider: "browser",
       message: "ElevenLabs TTS is not configured. Using browser speech synthesis fallback.",
     });
+    return;
   }
 
   try {
@@ -44,15 +44,15 @@ voiceRouter.post("/tts", async (req: Request, res: Response) => {
     );
 
     if (!upstream.ok || !upstream.body) {
-      const errText = await upstream.text().catch(() => "");
       console.warn(
         `ElevenLabs TTS unavailable (status ${upstream.status}). Falling back to browser speech synthesis.`
       );
-      return res.status(200).json({
+      res.status(200).json({
         fallback: true,
         provider: "browser",
         message: "ElevenLabs TTS unavailable. Using browser speech synthesis.",
       });
+      return;
     }
 
     res.setHeader("Content-Type", "audio/mpeg");
@@ -65,6 +65,10 @@ voiceRouter.post("/tts", async (req: Request, res: Response) => {
     res.end();
   } catch (err) {
     console.error("Voice route error:", err);
-    return res.status(500).json({ error: "Internal server error." });
+    res.status(500).json({ error: "Internal server error." });
   }
+}
+
+voiceRouter.post("/tts", async (req: Request, res: Response) => {
+  await processTts(req.body, res);
 });

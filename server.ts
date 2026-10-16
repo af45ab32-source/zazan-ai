@@ -13,12 +13,12 @@ const __dirname = path.dirname(__filename);
 async function startServer() {
   const app = express();
 
-  app.use(cors({ origin: true }));
+  app.use(cors({ origin: true, credentials: true }));
   app.use(express.json({ limit: "1mb" }));
 
   // API endpoints
   app.get("/api/health", (_req, res) => {
-    res.json({ status: "ok", service: "zazan-ai-server" });
+    res.json({ ok: true, status: "ok", service: "zazan-ai" });
   });
 
   app.use("/api/chat", chatRouter);

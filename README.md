@@ -24,3 +24,22 @@ Futuristic AI Assistant for Web and Android.
   7. *Research* — Analytical synthesis and structured breakdowns.
 - **Multilingual & RTL Support**: English, Pashto (پښتو), Urdu (اردو), and Arabic (العربية) with native script alignment.
 - **Smart Voice Actions**: Voice commands for YouTube, WhatsApp, Google Maps, Camera, and installed mobile applications.
+
+## Vercel Deployment
+
+Deploy the fullstack application (Vite frontend + Serverless API functions) directly to Vercel:
+
+1. **Import Git Repository**: In your Vercel Dashboard, import this repository.
+2. **Framework Preset**: Vite (detected automatically).
+3. **Build Command**: `npm run build`
+4. **Output Directory**: `client/dist`
+5. **Environment Variables**:
+   - `GEMINI_API_KEY`: Your Gemini API key from Google AI Studio.
+   - `GEMINI_MODEL`: `gemini-3.5-flash` (optional).
+   - `ELEVENLABS_API_KEY`: Your ElevenLabs API key (optional).
+   - `ELEVENLABS_VOICE_ID`: Your ElevenLabs voice ID (optional).
+6. **Endpoints deployed**:
+   - `GET /api/health` -> Serverless health check (`{"ok": true, "status": "ok", "service": "zazan-ai"}`)
+   - `POST /api/chat` -> AI chat powered by Gemini
+   - `POST /api/voice/tts` -> ElevenLabs TTS with browser fallback
+
